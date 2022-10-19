@@ -5,6 +5,7 @@
 
 #include <stdio.h>
 #include <string>
+#include <time.h>
 
 #define AND 0
 #define OR 1
@@ -56,11 +57,13 @@ bool gateOutput(bool a, bool b, char gate)
 
 int main(int argc, char* argv[])
 {
+    // perform input validation
     if (argc != 4) {
         printf("Usage: ./sequential <input_file_name> <input_file_length> <output_file_name>\n");
         return 1;
     }
 
+    // parse input arguments
     char* input_filename = argv[1];
     char* output_filename = argv[3];
     unsigned int size = std::stoi(argv[2]);
@@ -71,13 +74,27 @@ int main(int argc, char* argv[])
     char* gate = (char*)calloc(size, sizeof(char));
     bool* output = (bool*)calloc(size, sizeof(bool));
 
+    // initialize timer variables
+    clock_t start, end;
+    double exec_time, total_exec_time = 0.;
+
     // load data from file into the arrays
     load_data(input_filename, a, b, gate, size);
 
-    //Execute sequentially
-    logicGateSequential(output, a, b, gate, size);
+    // perform the operation 10 times to obtain the average running time
+    for (int i = 0; i < 10; i++) {
+        //Execute sequentially
+        start = clock();
+        logicGateSequential(output, a, b, gate, size);
+        end = clock();
+        exec_time = (((double)(end - start)) / CLOCKS_PER_SEC) * 1000;  // multiply by 1000 to get execution time in ms
+        total_exec_time += exec_time;
 
-    printf("Output array : {%d,%d,%d,%d}\n",output[0], output[1], output[2], output[3]);
+        // print the execution time
+        printf("The running time for sequential execution is: %f\n", exec_time);
+    }
+
+    printf("\nThe average running time for sequential execution is: %f", (total_exec_time / 10));
 
     // save output data into a file
     save_data(output_filename, output, size);
