@@ -7,9 +7,6 @@
 #include <string>
 
 #define MAX_MSE 0.00001f
-//#ifndef __GPU_TIMER_H__
-//#endif
-//#define __GPU_TIMER_H__
 
 float memsettime;
 cudaEvent_t start, stop;
