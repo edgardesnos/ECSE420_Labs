@@ -5,7 +5,7 @@
 
 #include <stdio.h>
 #include <string>
-#include <time.h>
+#include <chrono>
 
 #define AND 0
 #define OR 1
@@ -75,7 +75,7 @@ int main(int argc, char* argv[])
     bool* output = (bool*)calloc(size, sizeof(bool));
 
     // initialize timer variables
-    clock_t start, end;
+    std::chrono::high_resolution_clock::time_point start, end;
     double exec_time, total_exec_time = 0.;
 
     // load data from file into the arrays
@@ -84,10 +84,10 @@ int main(int argc, char* argv[])
     // perform the operation 10 times to obtain the average running time
     for (int i = 0; i < 10; i++) {
         //Execute sequentially
-        start = clock();
+        start = std::chrono::high_resolution_clock::now();
         logicGateSequential(output, a, b, gate, size);
-        end = clock();
-        exec_time = (((double)(end - start)) / CLOCKS_PER_SEC) * 1000;  // multiply by 1000 to get execution time in ms
+        end = std::chrono::high_resolution_clock::now();
+        exec_time = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count() / 1000000.;
         total_exec_time += exec_time;
 
         // print the execution time
