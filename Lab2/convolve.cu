@@ -1,54 +1,44 @@
-﻿
-#include "cuda_runtime.h"
+﻿#include "cuda_runtime.h"
 #include "device_launch_parameters.h"
-#include "gputimer.h"
 #include "img_helper.cuh"
-#include "weight_matrix.cuh"
+#include "gputimer.h"
+#include "wm.cuh"
 
 #include <stdio.h>
 #include <math.h>
 #include <string>
 
-
-// function declaration
-cudaError_t convolve(unsigned char* out, unsigned char* in, float[][3] w, unsigned int width, unsigned int height, unsigned int size, unsigned int out_size, unsigned int threads_per_block, struct GpuTimer* timer, float* timeElapsed);
+#define MAX_MSE 0.00001f
 
 
-__global__ void convolveKernel(unsigned char* out, unsigned char* in, float[][3] w, unsigned int width, unsigned int height, unsigned int size)
+cudaError_t convolve(unsigned char* image_out, unsigned char* image_in, float* wm, unsigned int width, unsigned int size, unsigned int out_size, unsigned int threads_per_block, struct GpuTimer* timer, float* timeElapsed);
+
+__global__ void convolutionKernel(unsigned char* out, unsigned char* in, float* wm, unsigned int width, unsigned int size)
 {
     int idx = threadIdx.x + (blockIdx.x * blockDim.x);
-    int x = ((int)(idx / 4) % width);
-    int y = (int)(idx / (width * 4));
-    //int out_idx = (idx/4) - width + (x-1);
-    int out_idx = ((idx/width) - 1) * (4 * (width - 2)) + (x - 1);
-    if (x != 0 && y != 0 && x != width-1 && y != height-1 && idx < size && idx%4 != 3) {
-        unsigned char top = idx - (4 * width);
-        unsigned char top_left = top - 4;
-        unsigned char top_right = top + 4;
-        unsigned char middle = idx;
-        unsigned char middle_left = middle - 4;
-        unsigned char middle_right = middle + 4;
-        unsigned char bottom = idx + (4 * width);
-        unsigned char bottom_left = bottom - 4;
-        unsigned char bottom_right = bottom + 4;
 
-        unsigned char o = w[0][0] * in[top_left]       + w[0][1] * in[top]     + w[0][2] * in[top_right] + 
-                          w[1][0] * in[middle_left]    + w[1][1] * in[middle]  + w[1][2] * in[middle_right] +
-                          w[2][0] * in[bottom_left]    + w[2][2] * in[bottom]  + w[2][2] * in[bottom_right];
-        out[out_idx] = max(0, min(255, o));
+    if (idx >= 4 * width && idx < 4 * width * (size / width - 1) && idx % (4 * width) >= 4 && idx % (4 * width) < 4 * (width - 1)) {
+
+        if (idx % 4 == 3) {
+            out[idx - 4 * width - 4 - 8 * (idx / (4 * width) - 1)] = in[idx];
+        }
+        else {
+            int out_val = wm[0] * in[idx - 4 * width - 4] + wm[1] * in[idx - 4 * width] + wm[2] * in[idx - 4 * width + 4];
+            out_val += wm[3] * in[idx - 4] + wm[4] * in[idx] + wm[5] * in[idx + 4];
+            out_val += wm[6] * in[idx + 4 * width - 4] + wm[7] * in[idx + 4 * width] + wm[8] * in[idx + 4 * width + 4];
+            out[idx - 4 * width - 4 - 8 * (idx / (4 * width) - 1)] = max(0, min(255, out_val));
+        }
     }
-    else {
-        out[out_idx] = in[idx];
-    }
+    // Else do nothing
 }
 
 
-// Helper function for using CUDA to add vectors in parallel.
-cudaError_t convolve(unsigned char* out, unsigned char* in, float[][3] w, unsigned int width, unsigned int height, unsigned int size, unsigned int out_size, unsigned int threads_per_block, struct GpuTimer* timer, float* timeElapsed)
+// Helper function for using CUDA to perform convolution.
+cudaError_t convolve(unsigned char* out, unsigned char* in, float* wm, unsigned int width, unsigned int size, unsigned int out_size, unsigned int threads_per_block, struct GpuTimer* timer, float* timeElapsed)
 {
     unsigned char* dev_in = 0;
     unsigned char* dev_out = 0;
-    float* dev_w = 0;
+    float* dev_wm = 0;
     cudaError_t cudaStatus;
 
     // Choose which GPU to run on, change this on a multi-GPU system.
@@ -58,8 +48,8 @@ cudaError_t convolve(unsigned char* out, unsigned char* in, float[][3] w, unsign
         goto Error;
     }
 
-    // Allocate GPU buffers for three vectors (input image, weight matrix, output image)
-    cudaStatus = cudaMalloc((void**)&dev_out, (out_size) * sizeof(unsigned char));
+    // Allocate GPU buffers for three vectors (two input, one output)    .
+    cudaStatus = cudaMalloc((void**)&dev_out, out_size * sizeof(unsigned char));
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMalloc failed!");
         goto Error;
@@ -71,7 +61,7 @@ cudaError_t convolve(unsigned char* out, unsigned char* in, float[][3] w, unsign
         goto Error;
     }
 
-    cudaStatus = cudaMalloc((void**)&dev_w, (3 * 3) * sizeof(float));
+    cudaStatus = cudaMalloc((void**)&dev_wm, 9 * sizeof(float));
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMalloc failed!");
         goto Error;
@@ -84,7 +74,7 @@ cudaError_t convolve(unsigned char* out, unsigned char* in, float[][3] w, unsign
         goto Error;
     }
 
-    cudaStatus = cudaMemcpy(dev_w, w, size * sizeof(float), cudaMemcpyHostToDevice);
+    cudaStatus = cudaMemcpy(dev_wm, wm, 9 * sizeof(float), cudaMemcpyHostToDevice);
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMemcpy failed!");
         goto Error;
@@ -92,7 +82,7 @@ cudaError_t convolve(unsigned char* out, unsigned char* in, float[][3] w, unsign
 
     // Launch a kernel on the GPU and time it
     timer->Start();
-    convolveKernel << < (size + threads_per_block - 1) / threads_per_block, threads_per_block >> > (dev_out, dev_in, dev_w, width, height, size);
+    convolutionKernel <<< (size + threads_per_block - 1) / threads_per_block, threads_per_block >>> (dev_out, dev_in, dev_wm, width, size);
     timer->Stop();
 
     // record the computation time
@@ -101,7 +91,7 @@ cudaError_t convolve(unsigned char* out, unsigned char* in, float[][3] w, unsign
     // Check for any errors launching the kernel
     cudaStatus = cudaGetLastError();
     if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "addKernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
+        fprintf(stderr, "convolutionKernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
         goto Error;
     }
 
@@ -109,12 +99,12 @@ cudaError_t convolve(unsigned char* out, unsigned char* in, float[][3] w, unsign
     // any errors encountered during the launch.
     cudaStatus = cudaDeviceSynchronize();
     if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching addKernel!\n", cudaStatus);
+        fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching convolutionKernel!\n", cudaStatus);
         goto Error;
     }
 
     // Copy output vector from GPU buffer to host memory.
-    cudaStatus = cudaMemcpy(out, dev_out, (out_size) * sizeof(unsigned char), cudaMemcpyDeviceToHost);
+    cudaStatus = cudaMemcpy(out, dev_out, out_size * sizeof(unsigned char), cudaMemcpyDeviceToHost);
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMemcpy failed!");
         goto Error;
@@ -123,7 +113,7 @@ cudaError_t convolve(unsigned char* out, unsigned char* in, float[][3] w, unsign
 Error:
     cudaFree(dev_out);
     cudaFree(dev_in);
-    cudaFree(dev_w);
+    cudaFree(dev_wm);
 
     return cudaStatus;
 }
@@ -160,17 +150,16 @@ float get_MSE(char* input_filename_1, char* input_filename_2)
 }
 
 
-int main(int argc, char** argv)
-{
+int main(int argc, char** argv) {
     if (argc != 5) {
-        printf("Usage: ./convolve <input_image> <output_image> <gold_standard_output_filename> <num_threads>");
+        printf("Usage: ./convolve <input_image> <output_image> <mse_comparison_filename> <num_threads>");
         exit(1);
     }
 
     // load command args
     char* input_filename = argv[1];
     char* output_filename = argv[2];
-    char* gold_standard_output_filename = argv[3];
+    char* mse_comparison_filename = argv[3];
     unsigned int NUM_THREADS = std::stoi(argv[4]);
 
     if (NUM_THREADS > 1024) {
@@ -178,32 +167,44 @@ int main(int argc, char** argv)
         exit(1);
     }
 
+    // Flatten w
+    float weight_matrix[9];
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            weight_matrix[i * 3 + j] = w[i][j];
+        }
+    }
+
     float totalTimeElapsed = 0.0;
 
-    // repeat the operation 10 times
+    // repeat the operation 10 times for timing purposes
     for (int i = 0; i < 10; i++) {
         // initialize timer
         float timeElapsed = 0.0;
         struct GpuTimer* timer = new GpuTimer();
 
         // load the image
-        unsigned int width, height, size, out_size;
+        unsigned int width, height, size;
         unsigned char* image = { 0 };
         //unsigned char* image = (unsigned char*) malloc(size * sizeof(unsigned char));
         load_image(input_filename, &image, &width, &height, &size);
-        out_size = (width - 2) * (height - 2);
 
-        // perform pooling
-        unsigned char* image_out = (unsigned char*)malloc((out_size) * sizeof(unsigned char));
-        convolve(image_out, image, w, width, height, size, out_size, NUM_THREADS, timer, &timeElapsed);
-        printf("Pooling computation time: %f\n", timeElapsed);
+        unsigned int out_size = (width - 2) * (height - 2) * 4;
+
+        // perform convolution
+        unsigned char* image_out = (unsigned char*)malloc(out_size * sizeof(unsigned char));
+        convolve(image_out, image, weight_matrix, width, size, out_size, NUM_THREADS, timer, &timeElapsed);
+        printf("Run %d - Convolution computation time: %f\n", i+1, timeElapsed);
         totalTimeElapsed += timeElapsed;
 
-        // save the image
-        save_image(output_filename, image_out, width - 2, height - 2);
 
-        // compare the generated image to the provided correct output image
-        printf("MSE between the generated output and given output: %f\n", get_MSE(output_filename, gold_standard_output_filename));
+        if (i == 9) {
+            // save the image
+            save_image(output_filename, image_out, width - 2, height - 2);
+
+            // compare the generated image to the provided correct output image
+            printf("MSE between the generated output and given output: %f\n", get_MSE(output_filename, mse_comparison_filename));
+        }
 
         // free memory
         free(image);
@@ -211,5 +212,5 @@ int main(int argc, char** argv)
     }
 
     // obtain the average total time for performing the pooling operation
-    printf("Average computation time for preforming pooling: %f\n", totalTimeElapsed / 10.0);
+    printf("Average computation time for preforming convolution: %f\n", totalTimeElapsed / 10.0);
 }
