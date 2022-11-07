@@ -15,11 +15,34 @@ __global__ void finiteElementKernel(float* u2, float* u1, float* u, const unsign
 {
     int idx = threadIdx.x + (blockIdx.x * blockDim.x);
     // Check for interior element
-    if (idx % N != 0 && idx % N != N - 1 && idx >= N && idx < N * (N - 1)) {
+    if (idx % N != 0 && idx % N != N - 1 && idx > N && idx < N * (N - 1)) {
         u[idx] = (CONST_P * (u1[idx - 1] + u1[idx + 1] + u1[idx - N] + u1[idx + N] - 4 * u1[idx]) + 2 * u1[idx] - (1 - CONST_N) * u2[idx]) / (1 + CONST_N);
+        // Boundary Conditions
+        if (idx < 2 * N) {
+            u[idx - N] = CONST_G * u[idx];
+        }
+        if (idx > N * (N - 2)) {
+            u[idx + N] = CONST_G * u[idx];
+            if (idx == N * (N - 2) + (N - 2)) { // Corner Element
+                u[N * (N - 1) + (N - 1)] = CONST_G * u[idx + N];
+            }
+        }
+        if (idx % N == 1) {
+            u[idx - 1] = CONST_G * u[idx];
+            if (idx == N * (N - 2) + 1) { // Corner Element
+                u[N * (N - 1)] = CONST_G * u[idx - 1];
+            }
+            if (idx == N + 1) { // Corner Element
+                u[0] = CONST_G * u[idx - 1];
+            }
+        }
+        if (idx % N == N - 2) {
+            u[idx + 1] = CONST_G * u[idx];
+            if (idx == N - 2 + N) { // Corner Element
+                u[N - 1] = CONST_G * u[idx - N];
+            }
+        }
     }
-    // Boundary Conditions
-    // Corner Elements
 }
 
 
@@ -125,7 +148,7 @@ int main(int argc, char** argv)
     // load command args
     int T = std::stoi(argv[1]);
 
-    const unsigned int N = 4;
+    const unsigned int N = 100;
 
     // Init u arrays
     float u2[N*N] = { 0 };
@@ -133,12 +156,12 @@ int main(int argc, char** argv)
     float u[N*N] = { 0 };
 
     // Hit coordinates
-    int hit_i = 2;
-    int hit_j = 2;
+    int hit_i = N/2;
+    int hit_j = N/2;
 
     // Recording coordinates
-    int rec_i = 2;
-    int rec_j = 2;
+    int rec_i = N/2;
+    int rec_j = N/2;
 
     // Add the drum hit
     u1[hit_i * N + hit_j] = 1;
