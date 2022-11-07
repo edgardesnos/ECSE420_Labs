@@ -2,7 +2,7 @@
 #include <math.h>
 #include <string>
 
-int main(int argc, char** argv)
+int submain(int argc, char** argv)
 {
 
     if (argc != 2) {
@@ -29,14 +29,10 @@ int main(int argc, char** argv)
     int hit_i = 2;
     int hit_j = 2;
 
-    // Recording coordinates
-    int rec_i = 2;
-    int rec_j = 2;
-
     // Add the drum hit
     u1[hit_i][hit_j] = 1;
 
-    printf("Size of grid: 16 nodes\n");
+    printf("Size of grid: %d nodes\n", N*N);
     for (int k = 0; k < T; k++) {
         // Interior elements
         for (int i = 1; i < N - 1; i++) {
@@ -46,16 +42,23 @@ int main(int argc, char** argv)
         }
         // Side elements
         for (int i = 1; i < N - 1; i++) {
-            u[0][i] = G * u[N - 2][i];
-            u[N - 1][i] = G * u[1][i];
+            u[0][i] = G * u[1][i];
+            u[N - 1][i] = G * u[N - 2][i];
             u[i][0] = G * u[i][1];
             u[i][N - 1] = G * u[i][N - 2];
         }
         // Corner elements
         u[0][0] = G * u[1][0];
         u[N - 1][0] = G * u[N - 2][0];
-        u[0][N- 1] = G * u[0][N - 2];
+        u[0][N - 1] = G * u[0][N - 2];
         u[N - 1][N - 1] = G * u[N - 1][N - 2];
+        // Copy elements from u to u1 and u1 to u2
+        for (int i = 0; i < N; i++) {
+            for (int j = 0; j < N; j++) {
+                u2[i][j] = u1[i][j];
+                u1[i][j] = u[i][j];
+            }
+        }
         printf("(0,0): %f (0,1): %f (0,2): %f (0,3): %f\n", u[0][0], u[0][1], u[0][2], u[0][3]);
         printf("(1,0): %f (1,1): %f (1,2): %f (1,3): %f\n", u[1][0], u[1][1], u[1][2], u[1][3]);
         printf("(2,0): %f (2,1): %f (2,2): %f (2,3): %f\n", u[2][0], u[2][1], u[2][2], u[2][3]);
