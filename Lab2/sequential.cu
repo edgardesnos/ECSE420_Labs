@@ -1,8 +1,9 @@
 ﻿#include <stdio.h>
 #include <math.h>
 #include <string>
+#include <chrono>
 
-int submain(int argc, char** argv)
+int mainSequential(int argc, char** argv)
 {
 
     if (argc != 2) {
@@ -33,6 +34,14 @@ int submain(int argc, char** argv)
     u1[hit_i][hit_j] = 1;
 
     printf("Size of grid: %d nodes\n", N*N);
+
+    // initialize timer variables
+    std::chrono::high_resolution_clock::time_point start, end;
+    double exec_time, total_exec_time = 0.;
+
+    // start the timer
+    start = std::chrono::high_resolution_clock::now();
+
     for (int k = 0; k < T; k++) {
         // Interior elements
         for (int i = 1; i < N - 1; i++) {
@@ -65,6 +74,13 @@ int submain(int argc, char** argv)
         printf("(3,0): %f (3,1): %f (3,2): %f (3,3): %f\n", u[3][0], u[3][1], u[3][2], u[3][3]);
         printf("\n");
     }
+
+    // end timer
+    end = std::chrono::high_resolution_clock::now();
+
+    // print the runtime
+    exec_time = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count() / 1000000.;
+    printf("\nThe runtime for sequential execution is: %f ms\n", exec_time);
 
     return 0;
 }

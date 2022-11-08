@@ -137,18 +137,22 @@ Error:
     return cudaStatus;
 }
 
-int main(int argc, char** argv)
+int mainGrid(int argc, char** argv)
 {
 
     if (argc != 2) {
-        printf("Usage: ./sequential <num_iterations>");
+        printf("Usage: ./grid <num_iterations>");
         exit(1);
     }
 
     // load command args
     int T = std::stoi(argv[1]);
 
-    const unsigned int N = 100;
+    // size of grid
+    const unsigned int N = 512;
+
+    // threads per block
+    const unsigned int THREADS_PER_BLOCK = 64;
 
     // Init u arrays
     float u2[N*N] = { 0 };
@@ -166,19 +170,37 @@ int main(int argc, char** argv)
     // Add the drum hit
     u1[hit_i * N + hit_j] = 1;
 
+    // total time elapsed
+    float totalTimeElapsed = 0.;
+
     printf("Size of grid: %d nodes\n", N*N);
     for (int k = 0; k < T; k++) {
         float timeElapsed = 0.0;
         struct GpuTimer* timer = new GpuTimer();
-        finiteElement(u2, u1, u, N, 1, timer, &timeElapsed);
+        finiteElement(u2, u1, u, N, THREADS_PER_BLOCK, timer, &timeElapsed);
         // Copy elements from u to u1 and u1 to u2
         for (int i = 0; i < N * N; i++) {
                 u2[i] = u1[i];
                 u1[i] = u[i];
         }
-        printf("(%d,%d): %f - Computation time: %f\n", rec_i, rec_j, u[rec_i * N + rec_j], timeElapsed);
-        printf("\n");
+
+        totalTimeElapsed += timeElapsed;
+        
+        if (N == 4) {
+            printf("(0,0): %f (0,1): %f (0,2): %f (0,3): %f\n", u[0 * N + 0], u[0 * N + 1], u[0 * N + 2], u[0 * N + 3]);
+            printf("(1,0): %f (1,1): %f (1,2): %f (1,3): %f\n", u[1 * N + 0], u[1 * N + 1], u[1 * N + 2], u[1 * N + 3]);
+            printf("(2,0): %f (2,1): %f (2,2): %f (2,3): %f\n", u[2 * N + 0], u[2 * N + 1], u[2 * N + 2], u[2 * N + 3]);
+            printf("(3,0): %f (3,1): %f (3,2): %f (3,3): %f\n", u[3 * N + 0], u[3 * N + 1], u[3 * N + 2], u[3 * N + 3]);
+            printf("\n");
+        }
+        else {
+            printf("(%d,%d): %f - Computation time: %f\n", rec_i, rec_j, u[rec_i * N + rec_j], timeElapsed);
+            printf("\n");
+        }
     }
+
+    // print the total time taken for the parallel execution
+    printf("\nNet runtime for parallel execution is: %f ms\n", totalTimeElapsed);
 
     return 0;
 }

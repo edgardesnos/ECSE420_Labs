@@ -17,16 +17,22 @@ __global__ void convolutionKernel(unsigned char* out, unsigned char* in, float* 
 {
     int idx = threadIdx.x + (blockIdx.x * blockDim.x);
 
-    if (idx >= 4 * width && idx < 4 * width * (size / width - 1) && idx % (4 * width) >= 4 && idx % (4 * width) < 4 * (width - 1)) {
+    int out_idx = idx - 4 * width - 4 - 8 * (idx / (4 * width) - 1);
 
+    // output index is one element shifted "up" a row and "left" a column since we ignore both the first row and column.
+    //int out_idx = idx - (width * 4) - 4;
+
+    if (idx >= 4 * width && idx < 4 * width * ((size / width) - 1) && idx % (4 * width) >= 4 && idx % (4 * width) < 4 * (width - 1)) {
         if (idx % 4 == 3) {
-            out[idx - 4 * width - 4 - 8 * (idx / (4 * width) - 1)] = in[idx];
+            out[out_idx] = max(0, min(255, in[idx]));
         }
         else {
-            int out_val = wm[0] * in[idx - 4 * width - 4] + wm[1] * in[idx - 4 * width] + wm[2] * in[idx - 4 * width + 4];
-            out_val += wm[3] * in[idx - 4] + wm[4] * in[idx] + wm[5] * in[idx + 4];
-            out_val += wm[6] * in[idx + 4 * width - 4] + wm[7] * in[idx + 4 * width] + wm[8] * in[idx + 4 * width + 4];
-            out[idx - 4 * width - 4 - 8 * (idx / (4 * width) - 1)] = max(0, min(255, out_val));
+            int out_val = (wm[0] * in[idx - 4 * width - 4]) + (wm[1] * in[idx - 4 * width]) + (wm[2] * in[idx - 4 * width + 4]) + 
+                          (wm[3] * in[idx - 4])             + (wm[4] * in[idx])             + (wm[5] * in[idx + 4]) + 
+                          (wm[6] * in[idx + 4 * width - 4]) + (wm[7] * in[idx + 4 * width]) + (wm[8] * in[idx + 4 * width + 4]);
+
+            // clamp the output to be within the range [0, 255]
+            out[out_idx] = max(0, min(255, out_val));
         }
     }
     // Else do nothing
@@ -131,10 +137,10 @@ float get_MSE(char* input_filename_1, char* input_filename_2)
     if (error2) printf("error %u: %s\n", error2, lodepng_error_text(error2));
     if (width1 != width2) printf("images do not have same width\n");
     if (height1 != height2) printf("images do not have same height\n");
+    printf("Image dimensions are: %d x %d\n", width1, height1);
 
     // process image
-    float im1, im2, diff, sum, MSE;
-    sum = 0;
+    float im1, im2, diff, MSE, sum = 0.;
     for (int i = 0; i < width1 * height1; i++) {
         im1 = (float)image1[i];
         im2 = (float)image2[i];
@@ -176,9 +182,10 @@ int main(int argc, char** argv) {
     }
 
     float totalTimeElapsed = 0.0;
+    int iter = 10;  // number of iterations
 
     // repeat the operation 10 times for timing purposes
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < iter; i++) {
         // initialize timer
         float timeElapsed = 0.0;
         struct GpuTimer* timer = new GpuTimer();
@@ -198,7 +205,7 @@ int main(int argc, char** argv) {
         totalTimeElapsed += timeElapsed;
 
 
-        if (i == 9) {
+        if (i == iter-1) {
             // save the image
             save_image(output_filename, image_out, width - 2, height - 2);
 
@@ -212,5 +219,5 @@ int main(int argc, char** argv) {
     }
 
     // obtain the average total time for performing the pooling operation
-    printf("Average computation time for preforming convolution: %f\n", totalTimeElapsed / 10.0);
+    printf("Average computation time for preforming convolution: %f\n", totalTimeElapsed / iter);
 }
