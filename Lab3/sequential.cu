@@ -107,7 +107,7 @@ void output_writer(char *filename, int* arr, int size) {
 }
 
 
-int main(int argc, char **argv) {
+int mainSequential(int argc, char **argv) {
 	// validate input arguments
 	if (argc != 7) {
 		printf("Usage: ./sequential <inp1_file> <inp2_file> <inp3_file> <inp4_file> <nodeOutput_output_file> <nextLevelNodes_output_file>\n");
@@ -142,11 +142,11 @@ int main(int argc, char **argv) {
 		for (int neighborIdx = nodePtrs[node]; neighborIdx < nodePtrs[node + 1]; neighborIdx++) {
 			int neighbor = nodeNeighbors[neighborIdx];
 			// if this neighbor node has not yet been visited
-			if (nodeInfo[neighbor] == 0) {
+			if (nodeInfo[neighbor*4] == 0) {
 				// set the node as visited
-				nodeInfo[neighbor] = 1;
+				nodeInfo[neighbor*4] = 1;
 				// compute the node output
-				nodeInfo[neighbor + 3] = gate_solver(nodeInfo[neighbor + 1], nodeInfo[neighbor + 2], nodeInfo[node + 3]);
+				nodeInfo[neighbor*4 + 3] = gate_solver(nodeInfo[neighbor*4 + 1], nodeInfo[neighbor*4 + 2], nodeInfo[node*4 + 3]);
 				// store the node in nextLevelNodes
 				nextLevelNodes[numNextLevelNodes++] = neighbor;
 			}
@@ -155,7 +155,9 @@ int main(int argc, char **argv) {
 
 	// store the output in appropriate files
 	int* nodeOutput = (int*)calloc(nodeInfo_size, sizeof(int));
-	for (int i = 0; i < nodeInfo_size; i++) nodeOutput[i] = nodeInfo[i + 3];
+	for (int i = 0; i < nodeInfo_size; i++) nodeOutput[i] = nodeInfo[i*4 + 3];
 	output_writer(nodeOutput_filepath, nodeOutput, nodeInfo_size);
 	output_writer(nextLevelNodes_filepath, nextLevelNodes, numNextLevelNodes);
+
+	return 0;
 }
