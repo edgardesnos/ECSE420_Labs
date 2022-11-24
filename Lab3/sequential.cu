@@ -2,63 +2,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string>
-
-
-#define AND 0
-#define OR 1
-#define NAND 2
-#define NOR 3
-#define XOR 4
-#define XNOR 5
-
-
-/*
-*
-* Functions to read the contents of the csv input files provided for this assignment.
-*/
-int* input_reader_multiple(char* filename, int *size) {
-	FILE* fp = fopen(filename, "r");
-	char buffer[100];
-	int idx = 0;
-	int* out;
-
-	while (fgets(buffer, 100, fp) != NULL) {
-		char* token = strtok(buffer, ",");
-		while (token != NULL) {
-			if (idx == 0) {
-				*size = std::stoi(token);
-				out = (int*)calloc(*size * 4, sizeof(int));
-			}
-			else {
-				out[idx - 1] = std::stoi(token);
-			}
-			idx++;
-			token = strtok(NULL, ",");
-		}
-	}
-	fclose(fp);
-	return out;
-}
-
-int* input_reader(char* filename, int* size) {
-	FILE* fp = fopen(filename, "r");
-	char buffer[100];
-	int idx = 0;
-	int* out;
-
-	while (fgets(buffer, 100, fp) != NULL) {
-		if (idx == 0) {
-			*size = std::stoi(buffer);
-			out = (int*)calloc(*size, sizeof(int));
-		}
-		else {
-			out[idx - 1] = std::stoi(buffer);
-		}
-		idx++;
-	}
-	fclose(fp);
-	return out;
-}
+#include "io_helper.cuh"
+#include "compare.cuh"
 
 
 /*
@@ -67,47 +12,34 @@ int* input_reader(char* filename, int* size) {
 */
 int gate_solver(int gateType, int inp1, int inp2) {
 	int output;
-	switch (gateType)
-	{
-	case AND:
+	switch (gateType) {
+	case 0:  // AND
 		output = inp1 && inp2;
 		break;
-	case OR:
+	case 1:  // OR
 		output = inp1 || inp2;
 		break;
-	case NAND:
+	case 2:  // NAND
 		output = !(inp1 && inp2);
 		break;
-	case NOR:
+	case 3:  // NOR
 		output = !(inp1 || inp2);
 		break;
-	case XOR:
+	case 4:  // XOR
 		output = (inp1 || inp2) && (!inp1 || !inp2);
 		break;
-	case XNOR:
+	case 5:  // XNOR
 		output = !((inp1 || inp2) && (!inp1 || !inp2));
 		break;
 	default:
-		printf("Error: Gate not specified.\n");
-		output = 0;
+		printf("Error: Gate %d not specified.\n", gateType);
+		output = -1;
 	}
 	return output;
 }
 
 
-/*
-*
-* Function to write the output file as instructed in the assignment
-*/
-void output_writer(char *filename, int* arr, int size) {
-	FILE* fp = fopen(filename, "wt");
-	fprintf(fp, "%d\n", size);
-	for (int i = 0; i < size; i++) fprintf(fp, "%d\n", arr[i]);
-	fclose(fp);
-}
-
-
-int mainSequential(int argc, char **argv) {
+int mainSeq(int argc, char **argv) {
 	// validate input arguments
 	if (argc != 7) {
 		printf("Usage: ./sequential <inp1_file> <inp2_file> <inp3_file> <inp4_file> <nodeOutput_output_file> <nextLevelNodes_output_file>\n");
@@ -148,7 +80,7 @@ int mainSequential(int argc, char **argv) {
 				// compute the node output
 				nodeInfo[neighbor*4 + 3] = gate_solver(nodeInfo[neighbor*4 + 1], nodeInfo[neighbor*4 + 2], nodeInfo[node*4 + 3]);
 				// store the node in nextLevelNodes
-				nextLevelNodes[numNextLevelNodes++] = neighbor;
+				nextLevelNodes[numNextLevelNodes++] = neighbor;  // nextLevelNodes[atomicAdd(&numNextLevelNodes, 1) + 1] = neighbor;
 			}
 		}
 	}
@@ -159,5 +91,11 @@ int mainSequential(int argc, char **argv) {
 	output_writer(nodeOutput_filepath, nodeOutput, nodeInfo_size);
 	output_writer(nextLevelNodes_filepath, nextLevelNodes, numNextLevelNodes);
 
-	return 0;
+	// compare the results using the helper scripts provided
+	printf("\nComparing the output files from the program with the solution files");
+	printf("Comparing nodeOutput file: ");
+	compareFiles(nodeOutput_filepath, "sol_nodeOutput.txt");
+	printf("\nComparing nextLevelNodes file: ");
+	compareNextLevelNodeFiles(nextLevelNodes_filepath, "sol_nextLevelNodes.txt");
+
 }

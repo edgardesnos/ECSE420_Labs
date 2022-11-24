@@ -80,7 +80,13 @@
     <CudaCompile Include="global_queuing.cu" />
 	  <CudaCompile Include="block_queuing.cu" />
     <CudaCompile Include="sequential.cu" />
+	  <CudaCompile Include="io_helper.cu" />
+	  <CudaCompile Include="compare.cu" />
   </ItemGroup>
+	<ItemGroup>
+		<CudaInclude Include="io_helper.cuh" />
+		<CudaInclude Include="compare.cuh" />
+	</ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
     <Import Project="$(VCTargetsPath)\BuildCustomizations\CUDA 11.4.targets" />

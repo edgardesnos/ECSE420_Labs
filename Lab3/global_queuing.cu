@@ -1,6 +1,7 @@
-﻿
-#include "cuda_runtime.h"
+﻿#include "cuda_runtime.h"
 #include "device_launch_parameters.h"
+#include "io_helper.cuh"
+#include "compare.cuh"
 
 #include <iostream>
 #include <stdio.h>
@@ -14,70 +15,12 @@
 #define XOR 4
 #define XNOR 5
 
-/*
-*
-* Functions to read the contents of the csv input files provided for this assignment.
-*/
-int* input_reader_multiple(char* filename, int* size) {
-    FILE* fp = fopen(filename, "r");
-    char buffer[100];
-    int idx = 0;
-    int* out;
-
-    while (fgets(buffer, 100, fp) != NULL) {
-        char* token = strtok(buffer, ",");
-        while (token != NULL) {
-            if (idx == 0) {
-                *size = std::stoi(token);
-                out = (int*)calloc(*size * 4, sizeof(int));
-            }
-            else {
-                out[idx - 1] = std::stoi(token);
-            }
-            idx++;
-            token = strtok(NULL, ",");
-        }
-    }
-    fclose(fp);
-    return out;
-}
-
-int* input_reader(char* filename, int* size) {
-    FILE* fp = fopen(filename, "r");
-    char buffer[100];
-    int idx = 0;
-    int* out;
-
-    while (fgets(buffer, 100, fp) != NULL) {
-        if (idx == 0) {
-            *size = std::stoi(buffer);
-            out = (int*)calloc(*size, sizeof(int));
-        }
-        else {
-            out[idx - 1] = std::stoi(buffer);
-        }
-        idx++;
-    }
-    fclose(fp);
-    return out;
-}
-
-/*
-*
-* Function to write the output file as instructed in the assignment
-*/
-void output_writer(char* filename, int* arr, int size) {
-    FILE* fp = fopen(filename, "wt");
-    fprintf(fp, "%d\n", size);
-    for (int i = 0; i < size; i++) fprintf(fp, "%d\n", arr[i]);
-    fclose(fp);
-}
 
 /*
 *
 * Function to compute the output given a logical gate and the corresponding two input values.
 */
-__device__ int gate_solver(int gateType, int inp1, int inp2) {
+__device__ int gate_solver_parallel(int gateType, int inp1, int inp2) {
 	int output;
 	switch (gateType)
 	{
@@ -109,18 +52,30 @@ __device__ int gate_solver(int gateType, int inp1, int inp2) {
 __global__ void globalQueuingKernel(int *nextLevelNodes, int *nodePtrs, int *nodeNeighbors, int *nodeInfo, int *currLevelNodes, int *numNextLevelNodes, float elementsPerThread)
 {
     int idx = threadIdx.x + (blockIdx.x * blockDim.x);
-    for (int node = elementsPerThread * idx; node < (int) elementsPerThread * idx + elementsPerThread; node++) {
+
+    // iterate over all the nodes assigned to the current thread
+    for (int i = idx; i < std::round(idx + elementsPerThread); i++) {
+
+        // obtain the node index from the current level nodes list
+        int node = currLevelNodes[i];
+
+        // iterate over all neighbors of the current level node selected
         for (int neighborIdx = nodePtrs[node]; neighborIdx < nodePtrs[node + 1]; neighborIdx++) {
+
+            // obtain the neighbor node index from the node neighbors list
             int neighbor = nodeNeighbors[neighborIdx];
+
             // if this neighbor node has not yet been visited
             if (nodeInfo[neighbor*4] == 0) {
+
             	// set the node as visited
             	nodeInfo[neighbor*4] = 1;
+
             	// compute the node output
-            	nodeInfo[neighbor*4 + 3] = gate_solver(nodeInfo[neighbor*4 + 1], nodeInfo[neighbor*4 + 2], nodeInfo[node*4 + 3]);
-            	// store the node in nextLevelNodes
-            	//nextLevelNodes[numNextLevelNodes++] = neighbor;
-                nextLevelNodes[atomicAdd(&(numNextLevelNodes[0]), 1) + 1] = neighbor;
+            	nodeInfo[neighbor*4 + 3] = gate_solver_parallel(nodeInfo[neighbor*4 + 1], nodeInfo[neighbor*4 + 2], nodeInfo[node*4 + 3]);
+
+            	// store the node in nextLevelNodes -> make sure to use atomic addition instead of the ++ operator
+                nextLevelNodes[atomicAdd(numNextLevelNodes, 1)] = neighbor;
             }
         }
     }
@@ -134,12 +89,12 @@ cudaError_t globalQueueHelper(
     int *numNextLevelNodes, int nodePtrs_size, int nodeNeighbors_size, int nodeInfo_size, int currLevelNodes_size
 )
 {
-    int *dev_nextLevelNodes = 0;
+    int* dev_nextLevelNodes = 0;
     int* dev_nodePtrs = 0;
     int* dev_nodeNeighbors = 0;
     int* dev_nodeInfo = 0;
     int* dev_currLevelNodes = 0;
-    int* dev_numNextLevelNodes = 0;
+    int* dev_numNextLevelNodes;
     cudaError_t cudaStatus;
 
     float elementsPerThread = (float) currLevelNodes_size / (blockSize * numBlock);
@@ -182,7 +137,7 @@ cudaError_t globalQueueHelper(
         goto Error;
     }
 
-    cudaStatus = cudaMalloc((void**)&dev_numNextLevelNodes, 1 * sizeof(int));
+    cudaStatus = cudaMalloc((void**)&dev_numNextLevelNodes, sizeof(int));
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMalloc failed!");
         goto Error;
@@ -214,14 +169,14 @@ cudaError_t globalQueueHelper(
         goto Error;
     }
 
-    cudaStatus = cudaMemcpy(dev_numNextLevelNodes, numNextLevelNodes, 1 * sizeof(int), cudaMemcpyHostToDevice);
+    cudaStatus = cudaMemcpy(dev_numNextLevelNodes, numNextLevelNodes, sizeof(int), cudaMemcpyHostToDevice);
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMemcpy failed!");
         goto Error;
     }
 
     // Launch a kernel on the GPU with one thread for each element.
-    globalQueuingKernel <<<numBlock, blockSize>>>(dev_nextLevelNodes, dev_nodePtrs, dev_nodeNeighbors, dev_nodeInfo, dev_currLevelNodes, numNextLevelNodes, elementsPerThread);
+    globalQueuingKernel <<<numBlock, blockSize>>>(dev_nextLevelNodes, dev_nodePtrs, dev_nodeNeighbors, dev_nodeInfo, dev_currLevelNodes, dev_numNextLevelNodes, elementsPerThread);
 
 
     // Check for any errors launching the kernel
@@ -241,6 +196,18 @@ cudaError_t globalQueueHelper(
 
     // Copy output vector from GPU buffer to host memory.
     cudaStatus = cudaMemcpy(nextLevelNodes, dev_nextLevelNodes, nodeInfo_size * sizeof(int), cudaMemcpyDeviceToHost);
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaMemcpy failed!");
+        goto Error;
+    }
+
+    cudaStatus = cudaMemcpy(nodeInfo, dev_nodeInfo, nodeInfo_size * sizeof(int), cudaMemcpyDeviceToHost);
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaMemcpy failed!");
+        goto Error;
+    }
+
+    cudaStatus = cudaMemcpy(numNextLevelNodes, dev_numNextLevelNodes, sizeof(int), cudaMemcpyDeviceToHost);
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMemcpy failed!");
         goto Error;
@@ -284,12 +251,12 @@ int main(int argc, char** argv)
 
     // initialize output variables
     int* nextLevelNodes = (int*)calloc(nodeInfo_size, sizeof(int));
+    int numNextLevelNodes = 0;
 
-    int numNextLevelNodes[1] = {0};
     cudaError_t cudaStatus = globalQueueHelper(
         nextLevelNodes, nodePtrs, nodeNeighbors, nodeInfo, currLevelNodes,
         blockSize, numBlock,
-        numNextLevelNodes, nodePtrs_size, nodeNeighbors_size, nodeInfo_size, currLevelNodes_size
+        &numNextLevelNodes, nodePtrs_size, nodeNeighbors_size, nodeInfo_size, currLevelNodes_size
     );
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "globalQueueHelper failed!");
@@ -308,7 +275,14 @@ int main(int argc, char** argv)
     int* nodeOutput = (int*)calloc(nodeInfo_size, sizeof(int));
     for (int i = 0; i < nodeInfo_size; i++) nodeOutput[i] = nodeInfo[i * 4 + 3];
     output_writer(nodeOutput_filepath, nodeOutput, nodeInfo_size);
-    output_writer(nextLevelNodes_filepath, nextLevelNodes, numNextLevelNodes[0]);
+    output_writer(nextLevelNodes_filepath, nextLevelNodes, numNextLevelNodes);
+
+    // compare the results using the helper scripts provided
+    printf("\nComparing the output files from the program with the solution files");
+    printf("Comparing nodeOutput file: ");
+    compareFiles(nodeOutput_filepath, "sol_nodeOutput.txt");
+    printf("\nComparing nextLevelNodes file: ");
+    compareNextLevelNodeFiles(nextLevelNodes_filepath, "sol_nextLevelNodes.txt");
 
     return 0;
 }
