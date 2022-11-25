@@ -49,9 +49,12 @@ __device__ int gate_solver_parallel_block(int gateType, int inp1, int inp2) {
 	return output;
 }
 
-__global__ void blockQueuingKernel(int *nextLevelNodes, int *nodePtrs, int *nodeNeighbors, int *nodeInfo, int *currLevelNodes, int *numNextLevelNodes, float elementsPerThread)
+__global__ void blockQueuingKernel(int *nextLevelNodes, int *nodePtrs, int *nodeNeighbors, int *nodeInfo, int *currLevelNodes, int *numNextLevelNodes, float elementsPerThread, int sharedQueueSize)
 {
     int idx = threadIdx.x + (blockIdx.x * blockDim.x);
+
+    extern __shared__ int sharedQueue[];
+    int queueLen = 0;
 
     // iterate over all the nodes assigned to the current thread
     for (int i = std::floor(idx * elementsPerThread); i < std::floor((idx + 1) * elementsPerThread); i++) {
@@ -76,18 +79,28 @@ __global__ void blockQueuingKernel(int *nextLevelNodes, int *nodePtrs, int *node
 
             	// store the node in nextLevelNodes -> make sure to use atomic addition instead of the ++ operator
                 // Add to the memory block if space else to the global memory
-                nextLevelNodes[atomicAdd(numNextLevelNodes, 1)] = neighbor;
+                if (queueLen != sharedQueueSize) {
+                    sharedQueue[queueLen] = neighbor;
+                    queueLen++;
+                }
+                else {
+                    nextLevelNodes[atomicAdd(numNextLevelNodes, 1)] = neighbor;
+                }
             }
         }
     }
     // Once done with all elements, transfer block memory to global memory
+    //Loop until queueLen in case it isn't full
+    for (int i = 0; i < queueLen; i++) {
+        nextLevelNodes[atomicAdd(numNextLevelNodes, 1)] = sharedQueue[i];
+    }
 }
 
 
 // Helper function for using CUDA to perform global queuing
 cudaError_t blockQueuingHelper(
     int *nextLevelNodes, int *nodePtrs, int *nodeNeighbors, int *nodeInfo, int *currLevelNodes,
-    int blockSize, int numBlock,
+    int blockSize, int numBlock, int sharedQueueSize,
     int *numNextLevelNodes, int nodePtrs_size, int nodeNeighbors_size, int nodeInfo_size, int currLevelNodes_size
 )
 {
@@ -178,7 +191,7 @@ cudaError_t blockQueuingHelper(
     }
 
     // Launch a kernel on the GPU with one thread for each element.
-    blockQueuingKernel <<<numBlock, blockSize>>>(dev_nextLevelNodes, dev_nodePtrs, dev_nodeNeighbors, dev_nodeInfo, dev_currLevelNodes, dev_numNextLevelNodes, elementsPerThread);
+    blockQueuingKernel <<<numBlock, blockSize, sharedQueueSize * sizeof(int)>>>(dev_nextLevelNodes, dev_nodePtrs, dev_nodeNeighbors, dev_nodeInfo, dev_currLevelNodes, dev_numNextLevelNodes, elementsPerThread, sharedQueueSize);
 
 
     // Check for any errors launching the kernel
@@ -229,20 +242,21 @@ Error:
 int main(int argc, char** argv)
 {
     // validate input arguments
-    if (argc != 9) {
-        printf("Usage: ./block_queuing <blockSize> <numBlock> <inp1_file> <inp2_file> <inp3_file> <inp4_file> <nodeOutput_output_file> <nextLevelNodes_output_file>\n");
+    if (argc != 10) {
+        printf("Usage: ./block_queuing <blockSize> <numBlock> <sharedQueueSize> <inp1_file> <inp2_file> <inp3_file> <inp4_file> <nodeOutput_output_file> <nextLevelNodes_output_file>\n");
         exit(1);
     }
 
     // store the arguments
     int blockSize = std::stoi(argv[1]);
     int numBlock = std::stoi(argv[2]);
-    char* inp1_filepath = argv[3];
-    char* inp2_filepath = argv[4];
-    char* inp3_filepath = argv[5];
-    char* inp4_filepath = argv[6];
-    char* nodeOutput_filepath = argv[7];
-    char* nextLevelNodes_filepath = argv[8];
+    int sharedQueueSize = std::stoi(argv[3]);
+    char* inp1_filepath = argv[4];
+    char* inp2_filepath = argv[5];
+    char* inp3_filepath = argv[6];
+    char* inp4_filepath = argv[7];
+    char* nodeOutput_filepath = argv[8];
+    char* nextLevelNodes_filepath = argv[9];
 
     // load the data from the files into arrays
     int nodePtrs_size, nodeNeighbors_size, nodeInfo_size, currLevelNodes_size;
@@ -257,7 +271,7 @@ int main(int argc, char** argv)
 
     cudaError_t cudaStatus = blockQueuingHelper(
         nextLevelNodes, nodePtrs, nodeNeighbors, nodeInfo, currLevelNodes,
-        blockSize, numBlock,
+        blockSize, numBlock, sharedQueueSize,
         &numNextLevelNodes, nodePtrs_size, nodeNeighbors_size, nodeInfo_size, currLevelNodes_size
     );
     if (cudaStatus != cudaSuccess) {

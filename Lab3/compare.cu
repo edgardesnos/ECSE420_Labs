@@ -62,7 +62,7 @@ void compareNextLevelNodeFiles(char* file_name1, char* file_name2)
 
     for (int i = 0; i < len_1; i++) {
         if (input1[i] != input2[i]) {
-            fprintf(stderr, "Something goes wrong\n");
+            fprintf(stderr, "Something goes wrong\tExpected %d but was %d\n", input2[i], input1[i]);
             exit(1);
         }
     }
