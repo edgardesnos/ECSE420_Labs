@@ -54,7 +54,7 @@ __global__ void globalQueuingKernel(int *nextLevelNodes, int *nodePtrs, int *nod
     int idx = threadIdx.x + (blockIdx.x * blockDim.x);
 
     // iterate over all the nodes assigned to the current thread
-    for (int i = idx; i < std::round(idx + elementsPerThread); i++) {
+    for (int i = std::floor(idx * elementsPerThread); i < std::floor((idx + 1) * elementsPerThread); i++) {
 
         // obtain the node index from the current level nodes list
         int node = currLevelNodes[i];
@@ -224,7 +224,7 @@ Error:
 }
 
 
-int main(int argc, char** argv)
+int mainGlob(int argc, char** argv)
 {
     // validate input arguments
     if (argc != 9) {
@@ -278,11 +278,11 @@ int main(int argc, char** argv)
     output_writer(nextLevelNodes_filepath, nextLevelNodes, numNextLevelNodes);
 
     // compare the results using the helper scripts provided
-    printf("\nComparing the output files from the program with the solution files");
-    printf("Comparing nodeOutput file: ");
-    compareFiles(nodeOutput_filepath, "sol_nodeOutput.txt");
-    printf("\nComparing nextLevelNodes file: ");
-    compareNextLevelNodeFiles(nextLevelNodes_filepath, "sol_nextLevelNodes.txt");
+    printf("\nComparing the output files from the program with the solution files\n");
+    printf("Comparing nodeOutput file: \n");
+    compareFiles(nodeOutput_filepath, "./Lab3/Output/sol_nodeOutput.raw");
+    printf("\nComparing nextLevelNodes file: \n");
+    compareNextLevelNodeFiles(nextLevelNodes_filepath, "./Lab3/Output/sol_nextLevelNodes.raw");
 
     return 0;
 }

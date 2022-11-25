@@ -106,7 +106,7 @@ void compareFiles(char* file_name1, char* file_name2)
         {
             error++;
             printf("Line Number : %d \tError"
-                " Position : %d \n", line, pos);
+                " Position : %d \tDifferences: %c -> %c\n", line, pos, ch2, ch1);
         }
 
         // fetching character until end of file 
