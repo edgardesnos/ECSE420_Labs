@@ -4,6 +4,7 @@
 #include <string>
 #include "io_helper.cuh"
 #include "compare.cuh"
+#include <chrono>
 
 
 /*
@@ -65,6 +66,13 @@ int mainSeq(int argc, char **argv) {
 	int numNextLevelNodes = 0;
 	int* nextLevelNodes = (int*)calloc(nodeInfo_size, sizeof(int));
 
+	// initialize timer variables
+	std::chrono::high_resolution_clock::time_point start, end;
+	double exec_time, total_exec_time = 0.;
+
+	// start the timer
+	start = std::chrono::high_resolution_clock::now();
+
 	// start the sequential algorithm
 	for (int i = 0; i < currLevelNodes_size; i++) {
 		// obtain the current node in the queue
@@ -85,6 +93,13 @@ int mainSeq(int argc, char **argv) {
 		}
 	}
 
+	// end timer
+	end = std::chrono::high_resolution_clock::now();
+
+	// print the runtime
+	exec_time = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count() / 1000000.;
+	printf("\nThe runtime for sequential execution is: %f ms\n", exec_time);
+
 	// store the output in appropriate files
 	int* nodeOutput = (int*)calloc(nodeInfo_size, sizeof(int));
 	for (int i = 0; i < nodeInfo_size; i++) nodeOutput[i] = nodeInfo[i*4 + 3];
@@ -92,10 +107,10 @@ int mainSeq(int argc, char **argv) {
 	output_writer(nextLevelNodes_filepath, nextLevelNodes, numNextLevelNodes);
 
 	// compare the results using the helper scripts provided
-	printf("\nComparing the output files from the program with the solution files");
-	printf("Comparing nodeOutput file: ");
-	compareFiles(nodeOutput_filepath, "sol_nodeOutput.txt");
-	printf("\nComparing nextLevelNodes file: ");
-	compareNextLevelNodeFiles(nextLevelNodes_filepath, "sol_nextLevelNodes.txt");
+	printf("\nComparing the output files from the program with the solution files\n");
+	printf("Comparing nodeOutput file: \n");
+	compareFiles(nodeOutput_filepath, "./Lab3/Output/sol_nodeOutput.raw");
+	printf("\nComparing nextLevelNodes file: \n");
+	compareNextLevelNodeFiles(nextLevelNodes_filepath, "./Lab3/Output/sol_nextLevelNodes.raw");
 
 }

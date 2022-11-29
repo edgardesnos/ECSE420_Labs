@@ -2,6 +2,7 @@
 #include "device_launch_parameters.h"
 #include "io_helper.cuh"
 #include "compare.cuh"
+#include "gputimer.h"
 
 #include <iostream>
 #include <stdio.h>
@@ -86,7 +87,8 @@ __global__ void globalQueuingKernel(int *nextLevelNodes, int *nodePtrs, int *nod
 cudaError_t globalQueueHelper(
     int *nextLevelNodes, int *nodePtrs, int *nodeNeighbors, int *nodeInfo, int *currLevelNodes,
     int blockSize, int numBlock,
-    int *numNextLevelNodes, int nodePtrs_size, int nodeNeighbors_size, int nodeInfo_size, int currLevelNodes_size
+    int *numNextLevelNodes, int nodePtrs_size, int nodeNeighbors_size, int nodeInfo_size, int currLevelNodes_size,
+    struct GpuTimer* timer, float* timeElapsed
 )
 {
     int* dev_nextLevelNodes = 0;
@@ -176,7 +178,12 @@ cudaError_t globalQueueHelper(
     }
 
     // Launch a kernel on the GPU with one thread for each element.
+    timer->Start();
     globalQueuingKernel <<<numBlock, blockSize>>>(dev_nextLevelNodes, dev_nodePtrs, dev_nodeNeighbors, dev_nodeInfo, dev_currLevelNodes, dev_numNextLevelNodes, elementsPerThread);
+    timer->Stop();
+
+    // record the computation time
+    *timeElapsed = timer->Elapsed();
 
 
     // Check for any errors launching the kernel
@@ -224,7 +231,7 @@ Error:
 }
 
 
-int mainGlob(int argc, char** argv)
+int mainGlobal(int argc, char** argv)
 {
     // validate input arguments
     if (argc != 9) {
@@ -253,10 +260,14 @@ int mainGlob(int argc, char** argv)
     int* nextLevelNodes = (int*)calloc(nodeInfo_size, sizeof(int));
     int numNextLevelNodes = 0;
 
+    float timeElapsed = 0.0;
+    struct GpuTimer* timer = new GpuTimer();
+
     cudaError_t cudaStatus = globalQueueHelper(
         nextLevelNodes, nodePtrs, nodeNeighbors, nodeInfo, currLevelNodes,
         blockSize, numBlock,
-        &numNextLevelNodes, nodePtrs_size, nodeNeighbors_size, nodeInfo_size, currLevelNodes_size
+        &numNextLevelNodes, nodePtrs_size, nodeNeighbors_size, nodeInfo_size, currLevelNodes_size,
+        timer, &timeElapsed
     );
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "globalQueueHelper failed!");
@@ -276,6 +287,8 @@ int mainGlob(int argc, char** argv)
     for (int i = 0; i < nodeInfo_size; i++) nodeOutput[i] = nodeInfo[i * 4 + 3];
     output_writer(nodeOutput_filepath, nodeOutput, nodeInfo_size);
     output_writer(nextLevelNodes_filepath, nextLevelNodes, numNextLevelNodes);
+
+    printf("\nThe runtime for global queuing execution is: %f ms\n", timeElapsed);
 
     // compare the results using the helper scripts provided
     printf("\nComparing the output files from the program with the solution files\n");
